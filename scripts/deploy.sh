@@ -29,7 +29,7 @@ mv "${TEMP_DEPLOYMENT_FILE}" "${DEPLOYMENT_FILE}"
 
 
 #Portieris is not compatible with image name containing both tag and sha. Removing the tag
-IMAGE="${IMAGE%%:*}@${IMAGE#*"@"}"
+IMAGE="${IMAGE#*"@"}"
 sed -i "s~^\([[:blank:]]*\)image:.*$~\1image: ${IMAGE}~" ${DEPLOYMENT_FILE}
 
 DEPLOYMENT_DOC_INDEX=$(yq read --doc "*" --tojson $DEPLOYMENT_FILE | jq -r 'to_entries | .[] | select(.value.kind | ascii_downcase=="deployment") | .key')
@@ -54,7 +54,7 @@ if [ "$status" = failure ]; then
   fi
   exit 1
 fi
-
+export APPURL
 if [ "${CLUSTER_TYPE}" == "OPENSHIFT" ]; then
   ROUTE_DOC_INDEX=$(yq read --doc "*" --tojson $DEPLOYMENT_FILE | jq -r 'to_entries | .[] | select(.value.kind | ascii_downcase=="route") | .key')
   service_name=$(yq r --doc $ROUTE_DOC_INDEX $DEPLOYMENT_FILE metadata.name)
@@ -70,9 +70,19 @@ else
       echo "No Kubernetes Ingress definition found in $DEPLOYMENT_FILE."
     else
       service_name=$(yq r --doc $INGRESS_DOC_INDEX $DEPLOYMENT_FILE metadata.name)
-      APPURL=$(kubectl get ing ${service_name} --namespace "$IBMCLOUD_IKS_CLUSTER_NAMESPACE" -o json | jq -r .status.loadBalancer.ingress[0].ip)
+      for ITER in {1..30}
+      do
+        APPURL=$(kubectl get ing ${service_name} --namespace "$IBMCLOUD_IKS_CLUSTER_NAMESPACE" -o json | jq -r .status.loadBalancer.ingress[0].ip)
+        if [ -z  "${APPURL}"  ] || [[  "${APPURL}" = "null"  ]]; then 
+           echo "Waiting for the application url from ingress...."
+           sleep 2
+        else
+          break
+        fi
+      done
       echo "Application URL: http://${APPURL}"
       echo -n http://${APPURL} >../app-url
+      
     fi
 
   else
