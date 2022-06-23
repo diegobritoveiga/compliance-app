@@ -1,7 +1,7 @@
 version: '1'
 
 setup:
-  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi@sha256:d59863621d3ba1b9bd47f76950c751e842405f9c303d0d4d4298d964b664ee85
+  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi:3.7@sha256:0444aa3cc5032ba4d7f7a59a4177dd43dc1126ad902f09079b0a66156bbe4bcf
   script: |
     #!/usr/bin/env bash
     if [[ "$PIPELINE_DEBUG" == 1 ]]; then
@@ -9,19 +9,19 @@ setup:
       env
       set -x
     fi
-    if [[ "$pipeline_namespace" == *"pr"* ||  "$pipeline_namespace" == *"ci"* ]]; then
+    if [[ "$(get_env pipeline_namespace)" == *"pr"* ||  "$(get_env pipeline_namespace)" == *"ci"* ]]; then
       source scripts/code_setup.sh
-    fi  
+    fi
 
 test:
   abort_on_failure: false
-  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi@sha256:d59863621d3ba1b9bd47f76950c751e842405f9c303d0d4d4298d964b664ee85
+  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi:3.7@sha256:0444aa3cc5032ba4d7f7a59a4177dd43dc1126ad902f09079b0a66156bbe4bcf
   script: |
     #!/usr/bin/env bash
 
     cd ../"$(load_repo app-repo path)"
-    npm install
     npm ci
+
     # save exit code for old evidence collection
     exit_code=0
     npm test || exit_code=$?
@@ -31,7 +31,7 @@ test:
     if [ "$exit_code" != "0" ]; then
       status="failure"
     fi
-    
+
     collect-evidence \
       --tool-type "jest" \
       --status "$status" \
@@ -40,21 +40,9 @@ test:
       --asset-key "app-repo"
     exit $exit_code
 
-static-scan:
-  dind: true
-  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi@sha256:d59863621d3ba1b9bd47f76950c751e842405f9c303d0d4d4298d964b664ee85
-  script: |
-    #!/usr/bin/env bash
-    if [ -z "$(get_env opt-in-sonar "")" ]; then
-      echo "If you want to enable this stage, add 'opt-in-sonar' parameter to your pipeline with any value." >&2
-    else
-      chmod 777 scripts/sonarqube/sonarqube_run
-      scripts/sonarqube/sonarqube_run
-    fi
-
 containerize:
   dind: true
-  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi@sha256:d59863621d3ba1b9bd47f76950c751e842405f9c303d0d4d4298d964b664ee85
+  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi:3.7@sha256:0444aa3cc5032ba4d7f7a59a4177dd43dc1126ad902f09079b0a66156bbe4bcf
   script: |
     #!/usr/bin/env bash
 
@@ -68,7 +56,7 @@ containerize:
     source scripts/build.sh
 
 deploy:
-  image: icr.io/continuous-delivery/pipeline/pipeline-base-image@sha256:c1e9d5a9674a093635c386f96d35781aea7cad6cc1da86991ee1a85c854216f8
+  image: icr.io/continuous-delivery/pipeline/pipeline-base-image:2.19@sha256:482d28e51d5acc65471b366bbdcabc97f69e49da933337a7c42f45907cd63173
   script: |
     #!/usr/bin/env bash
 
@@ -83,12 +71,13 @@ deploy:
 
 acceptance-test:
   abort_on_failure: false
-  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi@sha256:d59863621d3ba1b9bd47f76950c751e842405f9c303d0d4d4298d964b664ee85
+  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi:3.7@sha256:0444aa3cc5032ba4d7f7a59a4177dd43dc1126ad902f09079b0a66156bbe4bcf
   script: |
     #!/usr/bin/env bash
-    npm install
+
+    source /root/.nvm/nvm.sh
     npm ci
-    export APP_URL=$(cat ../app-url)    
+    export APP_URL=$(get_env app-url)
     # save exit code for old evidence collection
     exit_code=0
     npm run acceptance-test || exit_code=$?
@@ -105,26 +94,47 @@ acceptance-test:
       --evidence-type "com.ibm.acceptance_tests" \
       --asset-type "repo" \
       --asset-key "app-repo"
-    exit $exit_code    
+    exit $exit_code
 
 release:
   abort_on_failure: false
-  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi@sha256:d59863621d3ba1b9bd47f76950c751e842405f9c303d0d4d4298d964b664ee85
+  image: icr.io/continuous-delivery/pipeline/pipeline-base-image:2.19@sha256:482d28e51d5acc65471b366bbdcabc97f69e49da933337a7c42f45907cd63173
   script: |
     #!/usr/bin/env bash
+
+    if [[ "$PIPELINE_DEBUG" == 1 ]]; then
+      trap env EXIT
+      env
+      set -x
+    fi
 
     source scripts/release.sh
 
 dynamic-scan:
-  dind: true 
+  dind: true
   abort_on_failure: false
-  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi@sha256:d59863621d3ba1b9bd47f76950c751e842405f9c303d0d4d4298d964b664ee85
+  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi:3.7@sha256:0444aa3cc5032ba4d7f7a59a4177dd43dc1126ad902f09079b0a66156bbe4bcf
   script: |
     #!/usr/bin/env bash
-    export APP_URL=$(cat ../app-url)
-    echo "APP_URL is ${APP_URL}"
+    if [ -z "$(get_env opt-in-dynamic-scan "")" ]; then
+      echo "If you want to enable this stage, add 'opt-in-dynamic-scan' parameter to your pipeline with any value. Also, please add 'opt-in-dynamic-api-scan' to your pipeline with any value to have api scans running, and 'opt-in-dynamic-ui-scan' with any value to have ui scans running" >&2
+    else
+      if [[ "$(get_env pipeline_namespace)" == *"cc"* ]]; then
+        app_url=$(get_env app-url "")
+        if [[ -z "${app_url}" ]]; then
+          echo "Please provide the app-url as the running application url. Recommended to use stage/test environment to run the Dynamic scan." >&2
+          exit 1
+        fi
+        source scripts/zap/zap-cc-config
+      fi
+      source scripts/zap/trigger-async-zap
+    fi
 
-    set_env "app-url" "$APP_URL"    
-    set_env "target-application-server-url" "$APP_URL"    
-    
+owasp-zap:
+  dind: true 
+  abort_on_failure: true
+  image: icr.io/continuous-delivery/pipeline/pipeline-base-ubi:3.7@sha256:0444aa3cc5032ba4d7f7a59a4177dd43dc1126ad902f09079b0a66156bbe4bcf
+  script: |
+    #!/usr/bin/env bash
+
     source scripts/zap/trigger_zap_scans
