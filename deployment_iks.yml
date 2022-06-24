@@ -97,14 +97,8 @@ metadata:
   name: hello-service-cip-ingress
   namespace: sample
 spec:
-  rules:
-  - host: hello-app.cluster-ingress-subdomain
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: hello-service-cip
-            port:
-              number: 8080
+  defaultBackend:
+    service:
+        name: hello-service-cip
+        port:
+          number: 8080

@@ -39,9 +39,6 @@ get-icr-region() {
     ibm:yp:ca-tor)
       echo ca
       ;;
-    stg)
-      echo stg
-      ;;  
     *)
       echo "Unknown region: $1" >&2
       exit 1
@@ -53,17 +50,19 @@ get-icr-region() {
 # add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
 # apt-get update && apt-get install docker-ce-cli
 
-IBMCLOUD_API=$(get_env ibmcloud-api "https://cloud.ibm.com")
-
-if [[ -s "/config/repository" ]]; then
-  REPOSITORY="$(cat /config/repository)"
+set +e
+REPOSITORY="$(cat /config/repository)"
+set -e
+if [[ "${REPOSITORY}" ]]; then
+  IMAGE_NAME=$(basename $REPOSITORY .git)
 else
-  REPOSITORY="$(load_repo app-repo url)"
+  IMAGE_NAME="$(cat /config/app-name)"
 fi
-IMAGE_NAME=$(basename "$REPOSITORY" .git)
 IMAGE_TAG="$(date +%Y%m%d%H%M%S)-$(cat /config/git-branch)-$(cat /config/git-commit)"
 
-if [[ -f "/config/break_glass" ]]; then
+BREAK_GLASS=$(cat /config/break_glass || echo "")
+
+if [[ -n "$BREAK_GLASS" ]]; then
   ARTIFACTORY_URL="$(jq -r .parameters.repository_url /config/artifactory)"
   ARTIFACTORY_REGISTRY="$(sed -E 's~https://(.*)/?~\1~' <<<"$ARTIFACTORY_URL")"
   ARTIFACTORY_INTEGRATION_ID="$(jq -r .instance_id /config/artifactory)"
@@ -77,9 +76,8 @@ else
 
   # Create the namespace if needed to ensure the push will be can be successfull
   echo "Checking registry namespace: ${ICR_REGISTRY_NAMESPACE}"
-  IBM_LOGIN_REGISTRY_REGION=$(< /config/registry-region awk -F: '{print $3}')
-  ibmcloud config --check-version false
-  ibmcloud login --apikey @/config/api-key -r "$IBM_LOGIN_REGISTRY_REGION" -a "$IBMCLOUD_API"
+  IBM_LOGIN_REGISTRY_REGION=$(cat /config/registry-region | awk -F: '{print $3}')
+  ibmcloud login --apikey @/config/api-key -r "$IBM_LOGIN_REGISTRY_REGION"
   NS=$( ibmcloud cr namespaces | sed 's/ *$//' | grep -x "${ICR_REGISTRY_NAMESPACE}" ||: )
 
   if [ -z "${NS}" ]; then
@@ -91,5 +89,4 @@ else
   fi
 fi
 
-# shellcheck disable=SC2034 # next sourced script is using it where this script is also sourced
 DOCKER_BUILD_ARGS="-t $IMAGE"

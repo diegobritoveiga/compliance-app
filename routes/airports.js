@@ -20,12 +20,11 @@ const utils = require('../utils');
 const router = express.Router();
 
 /* GET airport listing. */
-router.get('/', (req, res) => {
+router.get('/', (req, res, next) => {
     const search_query = req.query.q;
-    let results;
     if(!search_query) {
         // fetch all airports
-        results = airportsList.filter(elem => elem.icao);
+        let results = airportsList.filter(elem => elem.icao);
         // add pagination layer
         let page = 1, per_page = 100;
         if(req.query.page && !isNaN(req.query.page) && parseInt(req.query.page) > 0) {
@@ -43,7 +42,7 @@ router.get('/', (req, res) => {
             per_page
         });
     }
-    results = airportsList.filter(elem => elem.icao).filter((elem) => {
+    let results = airportsList.filter(elem => elem.icao).filter((elem) => {
         return elem.name.toLowerCase().includes(search_query.toLowerCase()) ||
             elem.city.toLowerCase().includes(search_query.toLowerCase()) ||
             elem.code.toLowerCase().includes(search_query.toLowerCase()) ||

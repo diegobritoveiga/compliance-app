@@ -13,11 +13,9 @@
 
 const express = require('express');
 
-const csrfProtection = require('../utils/csrf-middleware');
-
 const router = express.Router();
 
-function logincheck(req, _res, next) {
+function logincheck(req, res, next) {
   if (req.session && req.session.userEmail) {
     req.isLoggedInUser = true
   } else {
@@ -26,22 +24,22 @@ function logincheck(req, _res, next) {
   next();
 }
 
-router.get('/health', (_req, res) => {
+router.get('/health', (req, res, next) => {
   return res.status(200).json({health:"OK"})
 })
 
 /* GET home page. */
-router.get('/', logincheck, csrfProtection, (req, res) => {
-  res.render('index', { isLoggedInUser: req.isLoggedInUser, userEmail: req.session.userEmail, _csrf: req.csrfToken() });
+router.get('/', logincheck, (req, res, next) => {
+  res.render('index', { isLoggedInUser: req.isLoggedInUser, userEmail: req.session.userEmail });
 });
 
 /* Login code */
 router.post('/', (req, res, next) => {
-  if (req.body.username && req.body.password) {
-    req.session.userEmail = req.body.username;
+  if (req.body.logemail && req.body.logpassword) {
+    req.session.userEmail = req.body.logemail;
     return res.redirect('/');
   } else {
-    let err = new Error('All fields required.');
+    var err = new Error('All fields required.');
     err.status = 400;
     return next(err);
   }

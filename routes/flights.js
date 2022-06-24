@@ -22,9 +22,7 @@ const utils = require('../utils');
 
 const airportsList = require('../data/airports_list.json');
 
-const csrfProtection = require('../utils/csrf-middleware');
-
-function logincheck(req, _res, next) {
+function logincheck(req, res, next) {
     if (req.session && req.session.userEmail) {
         req.isLoggedInUser = true
     } else {
@@ -35,114 +33,8 @@ function logincheck(req, _res, next) {
 
 /* flight search */
 /* GET flights between two airports */
-router.post('/search', validateSearchData, validateDateForTrip, (req, res) => {
-    let { to, from, trip_type, pax } = req.body;
-    /* find flights between from and two
-    ignore rest of the params */
-
-    let onward_flights, return_flights;
-    try {
-        if(trip_type === enumMap.trip_type_map.ONE_WAY) {
-            onward_flights = computeFlightSearch(from, to, pax);
-            return_flights = null;
-        } else {
-            onward_flights = computeFlightSearch(from, to, pax);
-            return_flights = computeFlightSearch(to, from, pax);
-        }
-    } catch(err) {
-        console.log(err);
-        return res.status(err.statusCode || 500).send({
-            status: err.status || false,
-            message: err.message || "Something went wrong"
-        })
-    }
-
-    return res.status(200).send({
-        status: true,
-        data: {
-            onward_flights,
-            return_flights
-        }
-    });
-});
-
-function computeFlightSearch(source, dest, pax) {
-    const filtered_airports = airportsList.filter(elem => elem.icao);
-    let from_airport = filtered_airports.find(elem => elem.code === source);
-    if(!from_airport) {
-        throw new Object({
-            status: false,
-            message: "Departing airport not found in the list",
-            statusCode: 404
-        });
-    }
-    let to_airport = filtered_airports.find(elem => elem.code === dest);
-    if(!to_airport) {
-        throw new Object({
-            status: false,
-            message: "Destination airport not found in the list",
-            statusCode: 404
-        });
-    }
-    from_airport = utils.addMetaToAirportInfo(from_airport);
-    to_airport = utils.addMetaToAirportInfo(to_airport);
-
-    const airport_airlines = require('../data/airport_airlines.json');
-
-    // airlines operating from "from airport"
-    const airlines_operating_from = from_airport['nick'] ? airport_airlines[from_airport['nick']] : [];
-    if(!airlines_operating_from || !airlines_operating_from.length) {
-        throw new Object({
-            status: false,
-            message: "No airlines found to be operating from departure airport",
-            statusCode: 404
-        });
-    }
-
-    // airlines operating from "from airport"
-    const airlines_operating_to = to_airport['nick'] ? airport_airlines[to_airport['nick']] : [];
-    if(!airlines_operating_to || !airlines_operating_to.length) {
-        throw new Object({
-            status: false,
-            message: "No airlines found to be operating to destination airport",
-            statusCode: 404
-        });
-    }
-
-    // find intersecting airlines
-    const intersecting_airlines = airlines_operating_from.filter(value => airlines_operating_to.includes(value));
-
-    if(!intersecting_airlines.length) {
-        throw new Object({
-            status: false,
-            message: "No flights connecting the cities",
-            statusCode: 404
-        });
-    }
-
-    //put some dummy price info, flight numbers, and time
-    const airlines = require('../data/airlines.json');
-    const airlines_arr = utils.arrayfy(airlines, 'airline');
-    const results = [];
-
-    for(let each_airline of intersecting_airlines) {
-        const airline_obj = airlines_arr.find(elem => elem.name === each_airline);
-        const payload = {
-            airline: each_airline,
-            flight_no: `${airline_obj ? airline_obj.IATA : utils.randomString(2)} ${utils.randomNumber(100, 9999)}`,
-            fare: `$${utils.randomNumber(100, 999)}.${utils.randomNumber(1,99)}`,
-            departureTime: `${String(utils.randomNumber(0,23)).padStart(2, '0')}:${String(utils.randomNumber(0,59)).padStart(2, '0')}`,
-            flightDuration: `${utils.randomNumber(100,1500)} minutes`,
-        };
-        const fare = parseFloat(( pax.adult || 0 ) * Number(payload.fare.slice(1)) + ( pax.children || 0 ) * Number((payload.fare.slice(1)) * 0.75 )).toFixed(2);
-        payload.totalFare = `$${fare}`;
-        results.push(payload);
-    }
-    return results;
-}
-
-function validateSearchData(req, res, next) {
-    let { to, from, trip_class, trip_type, pax } = req.body;
+router.post('/search', (req, res, next) => {
+    let { to, from, trip_class, trip_type, pax, date } = req.body;
     // validation for payload
     if(!to || !from) {
         return res.status(400).send({
@@ -151,9 +43,8 @@ function validateSearchData(req, res, next) {
         });
     }
     if(!trip_class) {
-        req.body.trip_class = enumMap.trip_class_map.ECONOMY;
-    } 
-    if(!utils.validateEnumMap(enumMap.trip_class_map, req.body.trip_class)) {
+        trip_class = enumMap.trip_class_map.ECONOMY;
+    } else if(!utils.validateEnumMap(enumMap.trip_class_map, trip_class)) {
         return res.status(400).send({
             status: false,
             message: "Invalid trip class"
@@ -161,9 +52,8 @@ function validateSearchData(req, res, next) {
     }
 
     if(!trip_type) {
-        req.body.trip_type = enumMap.trip_type_map.ONE_WAY;
-    } 
-    if(!utils.validateEnumMap(enumMap.trip_type_map, req.body.trip_type)) {
+        trip_type = enumMap.trip_type_map.ONE_WAY;
+    } else if(!utils.validateEnumMap(enumMap.trip_type_map, trip_type)) {
         return res.status(400).send({
             status: false,
             message: "Invalid trip type"
@@ -177,11 +67,6 @@ function validateSearchData(req, res, next) {
         });
     }
 
-    return next();
-}
-
-function validateDateForTrip(req, res, next) {
-    let { date, trip_type } = req.body;
     if(!date || !date.departing) {
         return res.status(400).send({
             status: false,
@@ -207,12 +92,114 @@ function validateDateForTrip(req, res, next) {
             message: "Invalid return date"
         });
     }
-    return next();
+
+    /* find flights between from and two
+    ignore rest of the params */
+
+    let onward_flights, return_flights;
+    try {
+        if(trip_type === enumMap.trip_type_map.ONE_WAY) {
+            onward_flights = computeFlightSearch(from, to, pax, date.departing);
+            return_flights = null;
+        } else {
+            onward_flights = computeFlightSearch(from, to, pax, date.departing);
+            return_flights = computeFlightSearch(to, from, pax, date.returning);
+        }
+    } catch(err) {
+        console.log(err);
+        return res.status(err.statusCode || 500).send({
+            status: err.status || false,
+            message: err.message || "Something went wrong"
+        })
+    }
+
+    return res.status(200).send({
+        status: true,
+        data: {
+            onward_flights,
+            return_flights
+        }
+    });
+});
+
+function computeFlightSearch(from, to, pax, date) {
+    const filtered_airports = airportsList.filter(elem => elem.icao);
+    let from_airport = filtered_airports.find(elem => elem.code === from);
+    if(!from_airport) {
+        throw {
+            status: false,
+            message: "Departing airport not found in the list",
+            statusCode: 404
+        };
+    }
+    let to_airport = filtered_airports.find(elem => elem.code === to);
+    if(!to_airport) {
+        throw {
+            status: false,
+            message: "Destination airport not found in the list",
+            statusCode: 404
+        };
+    }
+    from_airport = utils.addMetaToAirportInfo(from_airport);
+    to_airport = utils.addMetaToAirportInfo(to_airport);
+
+    const airport_airlines = require('../data/airport_airlines.json');
+
+    // airlines operating from "from airport"
+    const airlines_operating_from = from_airport['nick'] ? airport_airlines[from_airport['nick']] : [];
+    if(!airlines_operating_from || !airlines_operating_from.length) {
+        throw {
+            status: false,
+            message: "No airlines found to be operating from departure airport",
+            statusCode: 404
+        };
+    }
+
+    // airlines operating from "from airport"
+    const airlines_operating_to = to_airport['nick'] ? airport_airlines[to_airport['nick']] : [];
+    if(!airlines_operating_to || !airlines_operating_to.length) {
+        throw {
+            status: false,
+            message: "No airlines found to be operating to destination airport",
+            statusCode: 404
+        };
+    }
+
+    // find intersecting airlines
+    const intersecting_airlines = airlines_operating_from.filter(value => airlines_operating_to.includes(value));
+
+    if(!intersecting_airlines.length) {
+        throw {
+            status: false,
+            message: "No flights connecting the cities",
+            statusCode: 404
+        };
+    }
+
+    //put some dummy price info, flight numbers, and time
+    const airlines = require('../data/airlines.json');
+    const airlines_arr = utils.arrayfy(airlines, 'airline');
+    const results = [];
+
+    for(let each_airline of intersecting_airlines) {
+        const airline_obj = airlines_arr.find(elem => elem.name === each_airline);
+        const payload = {
+            airline: each_airline,
+            flight_no: `${airline_obj ? airline_obj.IATA : utils.randomString(2)} ${utils.randomNumber(100, 9999)}`,
+            fare: `$${utils.randomNumber(100, 999)}.${utils.randomNumber(1,99)}`,
+            departureTime: `${String(utils.randomNumber(0,23)).padStart(2, '0')}:${String(utils.randomNumber(0,59)).padStart(2, '0')}`,
+            flightDuration: `${utils.randomNumber(100,1500)} minutes`,
+        };
+        const fare = parseFloat(( pax.adult || 0 ) * Number(payload.fare.slice(1)) + ( pax.children || 0 ) * Number((payload.fare.slice(1)) * 0.75 )).toFixed(2);
+        payload.totalFare = `$${fare}`;
+        results.push(payload);
+    }
+    return results;
 }
 
 /* GET flightbooking page. */
-router.get('/', logincheck, csrfProtection, (req, res) => {
-    res.render('flights', { isLoggedInUser: req.isLoggedInUser, userEmail: req.session.userEmail, _csrf: req.csrfToken() });
+router.get('/', logincheck, (req, res, next) => {
+    res.render('flights', { isLoggedInUser: req.isLoggedInUser, userEmail: req.session.userEmail });
 });
 
 

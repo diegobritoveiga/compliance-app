@@ -1,7 +1,8 @@
 const airportsListAdditionalMeta = require('../data/airports_list_additional_metadata.json');
 
 const isEmptyList = (list) => {
-    return list instanceof Array && list && list.length ? false : true;
+    const result = list instanceof Array && list && list.length ? false : true;
+    return result;
 }
 
 const arrayfy = (obj, key) => {
@@ -11,7 +12,7 @@ const arrayfy = (obj, key) => {
             [key]: meta,
             ...obj[meta]
         })
-    }
+    };
     return transformed;
 }
 
@@ -38,7 +39,7 @@ const randomString = (length) => {
     let result           = '';
     const characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const charactersLength = characters.length;
-    for ( let i = 0; i < length; i++ ) {
+    for ( var i = 0; i < length; i++ ) {
         result += characters.charAt(Math.floor(Math.random() * charactersLength));
     }
     return result;
